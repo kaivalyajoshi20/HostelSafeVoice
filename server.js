@@ -16,6 +16,8 @@ const pool = new Pool({ connectionString: process.env.DATABASE_URL, ssl: isProdu
 const ADMIN_USERNAME = process.env.ADMIN_USERNAME;
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
 const ADMIN_SESSION_SECRET = process.env.ADMIN_SESSION_SECRET;
+const RESEND_API_KEY = process.env.RESEND_API_KEY;
+const EMAIL_FROM = process.env.EMAIL_FROM || 'Hostel SafeVoice <onboarding@resend.dev>';
 const SESSION_TTL_SECONDS = 8 * 60 * 60;
 const ADMIN_COOKIE = 'safevoice_admin';
 
@@ -36,6 +38,11 @@ async function init() {
     id BIGSERIAL PRIMARY KEY,
     floor INTEGER NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS app_settings (
+    key TEXT PRIMARY KEY,
+    value TEXT,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
   )`);
 }
 
@@ -87,6 +94,50 @@ function requireAdmin(req, res, next) {
   next();
 }
 
+async function getNotificationEmail() {
+  const r = await pool.query("SELECT value FROM app_settings WHERE key='notification_email'");
+  return r.rowCount ? r.rows[0].value : null;
+}
+
+function validEmail(email) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
+async function sendComplaintAlert(complaint) {
+  const to = await getNotificationEmail();
+  if (!to || !RESEND_API_KEY) return { sent: false, reason: 'email_not_configured' };
+
+  const response = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      from: EMAIL_FROM,
+      to: [to],
+      subject: `New Hostel SafeVoice complaint — ${complaint.complaintCode}`,
+      text: [
+        'A new anonymous Hostel SafeVoice complaint has been registered.',
+        '',
+        `Complaint ID: ${complaint.complaintCode}`,
+        `Category: ${complaint.category}`,
+        `Urgency: ${complaint.urgency}`,
+        `Location: ${complaint.location || 'Not specified'}`,
+        `Affects other students: ${complaint.affectsOthers || 'Not specified'}`,
+        '',
+        'Description:',
+        complaint.description,
+        '',
+        'No student name, phone number, roll number, or other identity information is included by SafeVoice.'
+      ].join('\n')
+    })
+  });
+
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(`Email provider error ${response.status}: ${body.slice(0, 300)}`);
+  }
+  return { sent: true };
+}
+
 app.get('/health', (_, res) => res.json({ ok: true, service: 'Hostel SafeVoice' }));
 
 app.post('/api/admin/login', (req, res) => {
@@ -109,6 +160,17 @@ app.post('/api/admin/logout', (_, res) => {
 
 app.get('/api/admin/session', requireAdmin, (_, res) => res.json({ authenticated: true }));
 
+app.get('/api/admin/settings', requireAdmin, async (_, res) => {
+  res.json({ notificationEmail: await getNotificationEmail(), emailAlertsConfigured: Boolean(RESEND_API_KEY) });
+});
+
+app.patch('/api/admin/settings', requireAdmin, async (req, res) => {
+  const email = String(req.body?.notificationEmail || '').trim().toLowerCase();
+  if (!validEmail(email)) return res.status(400).json({ error: 'Please enter a valid admin email address' });
+  await pool.query(`INSERT INTO app_settings (key, value, updated_at) VALUES ('notification_email',$1,NOW()) ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value, updated_at=NOW()`, [email]);
+  res.json({ ok: true, notificationEmail: email, emailAlertsConfigured: Boolean(RESEND_API_KEY) });
+});
+
 app.post('/api/complaints', async (req, res) => {
   const { category, description, urgency, location, affects_others } = req.body || {};
   if (!category || !description || !urgency) return res.status(400).json({ error: 'category, description and urgency are required' });
@@ -122,6 +184,11 @@ app.post('/api/complaints', async (req, res) => {
       if (e.code !== '23505') throw e;
     }
   }
+
+  const complaint = { complaintCode, category, description, urgency, location, affectsOthers: affects_others };
+  // Email failure must not make the student's complaint fail after it is saved.
+  sendComplaintAlert(complaint).catch(err => console.error('Complaint alert email failed:', err.message));
+
   res.status(201).json({ complaintId: complaintCode, status: 'PENDING' });
 });
 
@@ -131,7 +198,6 @@ app.get('/api/complaints/:code', async (req, res) => {
   res.json(r.rows[0]);
 });
 
-// Silent physical button endpoint. For the prototype, only floor 3 is accepted and no student identity is stored.
 app.post('/api/silent-alert', async (req, res) => {
   const floor = Number(req.body?.floor ?? 3);
   if (floor !== 3) return res.status(400).json({ error: 'This prototype is configured for floor 3 only' });
