@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="mr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0f172a">
+  <title>Hostel SafeVoice</title>
+  <style>
+    :root{font-family:system-ui,-apple-system,BlinkMacSystemFont,"Noto Sans Devanagari",sans-serif;color:#172033;background:#f5f7fb}*{box-sizing:border-box}body{margin:0}.wrap{max-width:720px;margin:auto;padding:18px}.hero{background:#0f172a;color:#fff;border-radius:22px;padding:24px;margin-bottom:16px}.hero h1{margin:0 0 8px;font-size:28px}.hero p{margin:0;line-height:1.55;opacity:.9}.card{background:#fff;border:1px solid #e5e7eb;border-radius:18px;padding:18px;margin:14px 0;box-shadow:0 4px 18px rgba(15,23,42,.05)}h2{font-size:20px;margin:0 0 14px}label{display:block;font-weight:700;margin:14px 0 7px}input,select,textarea,button{width:100%;font:inherit;border-radius:12px}input,select,textarea{border:1px solid #cbd5e1;padding:12px;background:#fff}textarea{min-height:120px;resize:vertical}button{border:0;padding:13px 16px;font-weight:800;cursor:pointer;background:#0f172a;color:#fff;margin-top:16px}button.secondary{background:#e2e8f0;color:#172033}.note{background:#f1f5f9;border-radius:12px;padding:12px;font-size:14px;line-height:1.55}.privacy{background:#ecfdf5;border:1px solid #bbf7d0}.danger{background:#fff7ed;border:1px solid #fed7aa}.status{padding:12px;border-radius:12px;margin-top:12px;font-weight:700;background:#eef2ff}.muted{color:#64748b;font-size:13px}.hidden{display:none!important}.topnav{display:flex;gap:8px;margin-bottom:12px}.topnav button{margin:0}.row{display:grid;grid-template-columns:1fr 1fr;gap:10px}.complaint{border:1px solid #e2e8f0;border-radius:14px;padding:14px;margin:10px 0}.complaint b{display:block;margin-bottom:5px}.ok{color:#166534}.err{color:#b91c1c}.admin{font-family:system-ui,sans-serif}.admin h1{font-size:24px}.smallbtn{padding:9px 10px;font-size:13px;margin:4px 0;width:auto}.footer{text-align:center;color:#64748b;font-size:12px;padding:18px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="hero">
+    <h1>Hostel SafeVoice</h1>
+    <p>तुमची समस्या ऐकली जावी, ओळख नाही.</p>
+  </div>
+
+  <div id="studentView">
+    <div class="topnav"><button class="secondary" onclick="showTrack()">तक्रारीचा स्टेटस तपासा</button><button class="secondary" onclick="showForm()">नवीन तक्रार</button></div>
+    <section id="formCard" class="card">
+      <h2>सुरक्षित तक्रार नोंदवा</h2>
+      <div class="note privacy"><b>गोपनीयतेची सूचना</b><br>कृपया तुमचे नाव, मोबाईल नंबर, रोल नंबर किंवा इतर वैयक्तिक माहिती लिहू नका. समस्येचे ठिकाण सांगताना रूम नंबर किंवा तुमची ओळख पटेल अशी माहिती देऊ नका.</div>
+      <form id="complaintForm">
+        <label>समस्येचा प्रकार</label>
+        <select id="category" required><option value="">निवडा</option><option>पाणी</option><option>वीज</option><option>लाईट</option><option>स्वच्छता</option><option>बाथरूम</option><option>दुरुस्ती</option><option>देखभाल</option><option>जेवण</option><option>सुरक्षितता</option><option>त्रास</option><option>इतर</option></select>
+        <label>समस्येचे वर्णन</label>
+        <textarea id="description" required placeholder="उदा. तिसऱ्या मजल्यावरील बाथरूममध्ये सकाळपासून पाणी येत नाही."></textarea>
+        <label>तातडीची पातळी</label>
+        <select id="urgency" required><option value="">निवडा</option><option>सामान्य</option><option>महत्त्वाची</option><option>तातडीची</option></select>
+        <label>समस्येचे ठिकाण <span class="muted">(ऐच्छिक)</span></label>
+        <input id="location" placeholder="उदा. कॉरिडॉर / बाथरूम / पिण्याचे पाणी">
+        <label>इतर विद्यार्थ्यांवर परिणाम</label>
+        <select id="affects_others" required><option value="">निवडा</option><option>होय</option><option>नाही</option><option>माहित नाही</option></select>
+        <div class="note danger" style="margin-top:14px">तक्रार पाठवल्यानंतर मिळणारा <b>Complaint ID</b> जतन करा. त्याच ID ने स्टेटस तपासता येईल.</div>
+        <button type="submit">तक्रार सुरक्षितपणे पाठवा</button>
+      </form>
+      <div id="formResult" class="status hidden"></div>
+    </section>
+
+    <section id="trackCard" class="card hidden">
+      <h2>तक्रारीचा स्टेटस</h2>
+      <label>Complaint ID</label>
+      <input id="trackCode" placeholder="उदा. HS3-A1B2C3" autocapitalize="characters">
+      <button onclick="trackComplaint()">स्टेटस तपासा</button>
+      <div id="trackResult"></div>
+    </section>
+  </div>
+
+  <div id="adminView" class="admin hidden">
+    <section id="loginCard" class="card">
+      <h1>Admin Login</h1>
+      <p class="muted">This login is separate from student accounts.</p>
+      <label>Username</label><input id="adminUser" autocomplete="username">
+      <label>Password</label><input id="adminPass" type="password" autocomplete="current-password">
+      <button onclick="adminLogin()">Login</button><div id="loginResult"></div>
+    </section>
+    <section id="dashboardCard" class="card hidden">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px"><h1 style="margin:0">Complaints</h1><button class="secondary smallbtn" onclick="adminLogout()">Logout</button></div>
+      <button onclick="loadComplaints()">Refresh</button>
+      <div id="complaintsList"></div>
+    </section>
+  </div>
+
+  <div class="footer">तिसरा मजला • Hostel SafeVoice</div>
+</div>
+<script>
+const $=id=>document.getElementById(id);
+function showForm(){$('formCard').classList.remove('hidden');$('trackCard').classList.add('hidden')}
+function showTrack(){$('trackCard').classList.remove('hidden');$('formCard').classList.add('hidden')}
+$('complaintForm').addEventListener('submit',async e=>{e.preventDefault();const out=$('formResult');out.className='status';out.textContent='तक्रार पाठवत आहे...';try{const r=await fetch('/api/complaints',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({category:$('category').value,description:$('description').value,urgency:$('urgency').value,location:$('location').value,affects_others:$('affects_others').value})});const d=await r.json();if(!r.ok)throw Error(d.error||'तक्रार पाठवता आली नाही');out.innerHTML='तक्रार यशस्वीपणे नोंदवली आहे.<br><br><b>Complaint ID: '+d.complaintId+'</b><br><span class="muted">हा ID सुरक्षित ठेवा.</span>';e.target.reset()}catch(err){out.className='status err';out.textContent=err.message}});
+async function trackComplaint(){const code=$('trackCode').value.trim().toUpperCase();const out=$('trackResult');if(!code){out.innerHTML='<p class="err">Complaint ID टाका.</p>';return}out.innerHTML='<div class="status">तपासत आहे...</div>';try{const r=await fetch('/api/complaints/'+encodeURIComponent(code));const d=await r.json();if(!r.ok)throw Error(d.error||'तक्रार सापडली नाही');out.innerHTML='<div class="status">Status: '+d.status+'</div><div class="complaint"><b>'+d.category+'</b>'+d.description+'<br><span class="muted">'+(d.location||'')+'</span></div>'}catch(err){out.innerHTML='<p class="err">'+err.message+'</p>'}}
+function openAdmin(){ $('studentView').classList.add('hidden');$('adminView').classList.remove('hidden') }
+if(new URLSearchParams(location.search).get('admin')==='1')openAdmin();
+async function adminLogin(){const out=$('loginResult');out.textContent='Logging in...';try{const r=await fetch('/api/admin/login',{method:'POST',headers:{'Content-Type':'application/json'},credentials:'include',body:JSON.stringify({username:$('adminUser').value,password:$('adminPass').value})});const d=await r.json();if(!r.ok)throw Error(d.error||'Login failed');$('loginCard').classList.add('hidden');$('dashboardCard').classList.remove('hidden');loadComplaints()}catch(e){out.className='err';out.textContent=e.message}}
+async function adminLogout(){await fetch('/api/admin/logout',{method:'POST',credentials:'include'});$('dashboardCard').classList.add('hidden');$('loginCard').classList.remove('hidden')}
+async function loadComplaints(){const box=$('complaintsList');box.innerHTML='<p>Loading...</p>';try{const r=await fetch('/api/admin/complaints',{credentials:'include'});const d=await r.json();if(!r.ok)throw Error(d.error||'Unable to load');if(!d.length){box.innerHTML='<p class="muted">No complaints yet.</p>';return}box.innerHTML=d.map(c=>'<div class="complaint"><b>'+c.complaint_code+' • '+c.category+'</b><div>'+c.description+'</div><div class="muted">Urgency: '+c.urgency+' • Location: '+(c.location||'—')+' • Other students: '+(c.affects_others||'—')+'</div><div class="row"><select id="s-'+c.complaint_code+'"><option '+(c.status==='PENDING'?'selected':'')+'>PENDING</option><option '+(c.status==='UNDER_REVIEW'?'selected':'')+'>UNDER_REVIEW</option><option '+(c.status==='IN_PROGRESS'?'selected':'')+'>IN_PROGRESS</option><option '+(c.status==='RESOLVED'?'selected':'')+'>RESOLVED</option></select><button class="smallbtn" onclick="updateStatus(\''+c.complaint_code+'\')">Update</button></div></div>').join('')}catch(e){box.innerHTML='<p class="err">'+e.message+'</p>'}}
+async function updateStatus(code){const status=$('s-'+code).value;const r=await fetch('/api/admin/complaints/'+encodeURIComponent(code),{method:'PATCH',headers:{'Content-Type':'application/json'},credentials:'include',body:JSON.stringify({status})});if(!r.ok){const d=await r.json();alert(d.error||'Update failed');return}loadComplaints()}
+</script>
+</body>
+</html>
