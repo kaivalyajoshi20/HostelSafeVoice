@@ -6,8 +6,10 @@ import crypto from 'crypto';
 const { Pool } = pg;
 const app = express();
 const isProduction = process.env.NODE_ENV === 'production';
-app.use(cors({ origin: process.env.FRONTEND_ORIGIN || true, credentials: true }));
+const frontendOrigin = process.env.FRONTEND_ORIGIN;
+if (frontendOrigin) app.use(cors({ origin: frontendOrigin, credentials: true }));
 app.use(express.json({ limit: '100kb' }));
+app.use(express.static('public', { extensions: ['html'] }));
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, ssl: isProduction ? { rejectUnauthorized: false } : false });
 const ADMIN_USERNAME = process.env.ADMIN_USERNAME;
@@ -137,6 +139,8 @@ app.patch('/api/admin/complaints/:code', requireAdmin, async (req, res) => {
   if (!r.rowCount) return res.status(404).json({ error: 'Complaint not found' });
   res.json(r.rows[0]);
 });
+
+app.use('/api', (_, res, next) => { res.setHeader('Cache-Control', 'no-store'); next(); });
 
 const port = process.env.PORT || 10000;
 init().then(() => app.listen(port, () => console.log(`SafeVoice API listening on ${port}`))).catch(err => { console.error(err); process.exit(1); });
