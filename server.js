@@ -10,6 +10,7 @@ const frontendOrigin = process.env.FRONTEND_ORIGIN;
 if (frontendOrigin) app.use(cors({ origin: frontendOrigin, credentials: true }));
 app.use(express.json({ limit: '100kb' }));
 app.use(express.static('public', { extensions: ['html'] }));
+app.use('/api', (_, res, next) => { res.setHeader('Cache-Control', 'no-store'); next(); });
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, ssl: isProduction ? { rejectUnauthorized: false } : false });
 const ADMIN_USERNAME = process.env.ADMIN_USERNAME;
@@ -30,6 +31,11 @@ async function init() {
     status TEXT NOT NULL DEFAULT 'PENDING',
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS silent_alerts (
+    id BIGSERIAL PRIMARY KEY,
+    floor INTEGER NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
   )`);
 }
 
@@ -83,7 +89,6 @@ function requireAdmin(req, res, next) {
 
 app.get('/health', (_, res) => res.json({ ok: true, service: 'Hostel SafeVoice' }));
 
-// Separate admin login: no Google account or student email is required.
 app.post('/api/admin/login', (req, res) => {
   if (!ADMIN_USERNAME || !ADMIN_PASSWORD || !ADMIN_SESSION_SECRET) {
     return res.status(503).json({ error: 'Admin login is not configured on the server' });
@@ -126,8 +131,21 @@ app.get('/api/complaints/:code', async (req, res) => {
   res.json(r.rows[0]);
 });
 
+// Silent physical button endpoint. For the prototype, only floor 3 is accepted and no student identity is stored.
+app.post('/api/silent-alert', async (req, res) => {
+  const floor = Number(req.body?.floor ?? 3);
+  if (floor !== 3) return res.status(400).json({ error: 'This prototype is configured for floor 3 only' });
+  await pool.query('INSERT INTO silent_alerts (floor) VALUES ($1)', [floor]);
+  res.status(201).json({ ok: true, message: 'Silent alert received' });
+});
+
 app.get('/api/admin/complaints', requireAdmin, async (_, res) => {
   const r = await pool.query('SELECT complaint_code, category, description, urgency, location, affects_others, status, created_at, updated_at FROM complaints ORDER BY created_at DESC');
+  res.json(r.rows);
+});
+
+app.get('/api/admin/silent-alerts', requireAdmin, async (_, res) => {
+  const r = await pool.query('SELECT id, floor, created_at FROM silent_alerts ORDER BY created_at DESC LIMIT 50');
   res.json(r.rows);
 });
 
@@ -139,8 +157,6 @@ app.patch('/api/admin/complaints/:code', requireAdmin, async (req, res) => {
   if (!r.rowCount) return res.status(404).json({ error: 'Complaint not found' });
   res.json(r.rows[0]);
 });
-
-app.use('/api', (_, res, next) => { res.setHeader('Cache-Control', 'no-store'); next(); });
 
 const port = process.env.PORT || 10000;
 init().then(() => app.listen(port, () => console.log(`SafeVoice API listening on ${port}`))).catch(err => { console.error(err); process.exit(1); });
