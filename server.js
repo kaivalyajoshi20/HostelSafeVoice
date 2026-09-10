@@ -186,14 +186,14 @@ app.post('/api/complaints', async (req, res) => {
   }
 
   const complaint = { complaintCode, category, description, urgency, location, affectsOthers: affects_others };
-  // Email failure must not make the student's complaint fail after it is saved.
   sendComplaintAlert(complaint).catch(err => console.error('Complaint alert email failed:', err.message));
 
   res.status(201).json({ complaintId: complaintCode, status: 'PENDING' });
 });
 
+// Public tracking intentionally returns status/timestamps only. Complaint details stay admin-only.
 app.get('/api/complaints/:code', async (req, res) => {
-  const r = await pool.query('SELECT complaint_code, category, description, urgency, location, affects_others, status, created_at, updated_at FROM complaints WHERE complaint_code=$1', [req.params.code.toUpperCase()]);
+  const r = await pool.query('SELECT complaint_code, status, created_at, updated_at FROM complaints WHERE complaint_code=$1', [req.params.code.toUpperCase()]);
   if (!r.rowCount) return res.status(404).json({ error: 'Complaint not found' });
   res.json(r.rows[0]);
 });
