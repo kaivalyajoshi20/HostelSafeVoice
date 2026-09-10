@@ -7,13 +7,13 @@ export function registerPhase4({ app, pool, requireAdmin, requireHigher }) {
   const allow=req=>{const now=Date.now(),k=req.ip||req.socket?.remoteAddress||'unknown';const r=(buckets.get(k)||[]).filter(t=>now-t<WINDOW_MS);if(r.length>=MAX_SUBMISSIONS){buckets.set(k,r);return false;}r.push(now);buckets.set(k,r);return true;};
   setInterval(()=>{const now=Date.now();for(const[k,v]of buckets){const r=v.filter(t=>now-t<WINDOW_MS);if(r.length)buckets.set(k,r);else buckets.delete(k);}},WINDOW_MS).unref?.();
 
-  async function assess({category,description,location}){
+  async function assess({category,description}){
     let score=0,flags=[],text=norm(description);
     if(text.length<20){score+=20;flags.push('VERY_SHORT_DESCRIPTION');}
     if(text.length<8){score+=25;flags.push('LOW_INFORMATION');}
     if(/^(.)\1{5,}$/u.test(text.replace(/\s/g,''))){score+=35;flags.push('REPEATED_CHARACTERS');}
     if(/https?:\/\/|www\./i.test(description)){score+=10;flags.push('LINK_IN_DESCRIPTION');}
-    const recent=await pool.query(`SELECT complaint_code,category,description,location FROM complaints WHERE created_at>=NOW()-INTERVAL '24 hours' ORDER BY created_at DESC LIMIT 150`);
+    const recent=await pool.query(`SELECT complaint_code,category,description FROM complaints WHERE created_at>=NOW()-INTERVAL '24 hours' ORDER BY created_at DESC LIMIT 150`);
     let max=0,similarCode=null,count=0;
     for(const r of recent.rows){const s=similarity(description,r.description);if(s>=.82)count++;if(s>max){max=s;similarCode=r.complaint_code;}}
     if(max>=.90){score+=35;flags.push('VERY_SIMILAR_RECENT_COMPLAINT');}else if(max>=.82){score+=20;flags.push('SIMILAR_RECENT_COMPLAINT');}
@@ -23,23 +23,26 @@ export function registerPhase4({ app, pool, requireAdmin, requireHigher }) {
     return{score:Math.min(100,score),flags,reviewStatus:score>=60?'NEEDS_REVIEW':'NORMAL',similarCode,commonIssue:common};
   }
 
-  // Attach protection directly to the existing complaint route so the student UI
-  // needs no extra request and the anonymous flow remains unchanged.
-  const router=app.router;
-  const layer=router?.stack?.find(x=>x.route?.path==='/api/complaints'&&x.route?.methods?.post);
-  if(layer?.route?.stack){
-    layer.route.stack.unshift({handle:async(req,res,next)=>{
-      if(!allow(req))return res.status(429).json({error:'Too many submissions in a short period. Please try again later.'});
+  // Add a real Express Route layer, then move it before the existing submission route.
+  // This keeps the existing student UI unchanged while applying the protection to every submission.
+  const guard=(req,res,next)=>{
+    if(!allow(req))return res.status(429).json({error:'Too many submissions in a short period. Please try again later.'});
+    (async()=>{
       try{
-        const b=req.body||{};const category=clean(b.category),description=clean(b.description),location=clean(b.location);
+        const b=req.body||{},category=clean(b.category),description=clean(b.description),location=clean(b.location);
         if(description.length>2000||location.length>200)return res.status(400).json({error:'Input is too long'});
-        const risk=await assess({category,description,location});
+        const risk=await assess({category,description});
         const original=res.json.bind(res);
-        res.json=body=>{const code=body?.complaintId;Promise.resolve(code?pool.query(`UPDATE complaints SET risk_score=$1,risk_flags=$2,review_status=$3,updated_at=updated_at WHERE complaint_code=$4`,[risk.score,risk.flags,risk.reviewStatus,code]):null).catch(e=>console.error('Risk save failed:',e.message));return original(body);};
+        res.json=body=>{const code=body?.complaintId;if(code)pool.query(`UPDATE complaints SET risk_score=$1,risk_flags=$2,review_status=$3,updated_at=updated_at WHERE complaint_code=$4`,[risk.score,risk.flags,risk.reviewStatus,code]).catch(e=>console.error('Risk save failed:',e.message));return original(body);};
         next();
       }catch(e){console.error('Risk assessment failed:',e.message);next();}
-    },name:'safevoiceAnonymousRisk'});
-  }else console.error('Phase 4 could not attach to /api/complaints route');
+    })();
+  };
+  app.post('/api/complaints',guard);
+  const stack=app.router?.stack||[];
+  const guardLayer=stack[stack.length-1];
+  const target=stack.find(x=>x!==guardLayer&&x.route?.path==='/api/complaints'&&x.route?.methods?.post);
+  if(guardLayer&&target){stack.splice(stack.indexOf(guardLayer),1);stack.splice(stack.indexOf(target),0,guardLayer);}else console.error('Phase 4 could not reorder complaint guard');
 
   async function queue(kind,res){const filter=kind==='admin'?`c.complaint_destination IN ('ADMIN','ESCALATED')`:`c.complaint_destination IN ('HIGHER_AUTHORITY','ESCALATED')`;const r=await pool.query(`SELECT complaint_code,category,urgency,status,complaint_destination,created_at,updated_at,COALESCE(risk_score,0)::int AS risk_score,COALESCE(risk_flags,'{}') AS risk_flags,COALESCE(review_status,'NORMAL') AS review_status FROM complaints c WHERE ${filter} AND COALESCE(review_status,'NORMAL')<>'NORMAL' ORDER BY risk_score DESC,created_at ASC LIMIT 200`);res.json(r.rows);}
   app.get('/api/admin/review-queue',requireAdmin,(_,res)=>queue('admin',res));
