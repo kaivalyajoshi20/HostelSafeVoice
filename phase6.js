@@ -69,32 +69,45 @@ export function registerPhase6({ app, pool, requireAdmin, requireHigher }) {
     `);
 
     for (const c of r.rows) {
-      const overdueEvent = await recordEvent(c.complaint_code, 'SLA_OVERDUE_NOTICE');
-      if (overdueEvent && adminEmail && c.complaint_destination === 'ADMIN') {
-        await sendEmail(adminEmail, `SafeVoice SLA overdue — ${c.complaint_code}`, [
-          'An anonymous Hostel SafeVoice complaint has passed its response SLA.',
-          '', `Complaint ID: ${c.complaint_code}`, `Category: ${c.category}`, `Urgency: ${c.urgency}`,
-          `Age: ${Number(c.age_hours).toFixed(1)} hours`, `Location: ${c.location || 'Not specified'}`,
-          '', 'Please review and update the complaint status.'
-        ].join('\n'));
+      if (adminEmail && c.complaint_destination === 'ADMIN') {
+        const claimed = await recordEvent(c.complaint_code, 'SLA_OVERDUE_NOTICE');
+        if (claimed) {
+          try {
+            await sendEmail(adminEmail, `SafeVoice SLA overdue — ${c.complaint_code}`, [
+              'An anonymous Hostel SafeVoice complaint has passed its response SLA.',
+              '', `Complaint ID: ${c.complaint_code}`, `Category: ${c.category}`, `Urgency: ${c.urgency}`,
+              `Age: ${Number(c.age_hours).toFixed(1)} hours`, `Location: ${c.location || 'Not specified'}`,
+              '', 'Please review and update the complaint status.'
+            ].join('\n'));
+          } catch (err) {
+            await pool.query('DELETE FROM complaint_automation_events WHERE complaint_code=$1 AND event_type=$2', [c.complaint_code, 'SLA_OVERDUE_NOTICE']);
+            console.error('SLA overdue email failed:', err.message);
+          }
+        }
       }
 
       const multiplier = c.urgency === 'तातडीची' ? 8 : c.urgency === 'महत्त्वाची' ? 48 : 144;
       if (Number(c.age_hours) >= multiplier && c.complaint_destination === 'ADMIN') {
-        const escalationEvent = await recordEvent(c.complaint_code, 'AUTO_ESCALATED');
-        if (escalationEvent) {
-          await pool.query(
-            `UPDATE complaints SET complaint_destination='ESCALATED', updated_at=NOW()
-             WHERE complaint_code=$1 AND complaint_destination='ADMIN' AND status <> 'RESOLVED'`,
-            [c.complaint_code]
-          );
-          if (higherEmail) {
-            await sendEmail(higherEmail, `SafeVoice automatic escalation — ${c.complaint_code}`, [
-              'An anonymous Hostel SafeVoice complaint has exceeded twice its response SLA and was automatically escalated.',
-              '', `Complaint ID: ${c.complaint_code}`, `Category: ${c.category}`, `Urgency: ${c.urgency}`,
-              `Age: ${Number(c.age_hours).toFixed(1)} hours`, `Location: ${c.location || 'Not specified'}`,
-              '', 'Please review the complaint and provide instructions to the admin if required.'
-            ].join('\n'));
+        const update = await pool.query(
+          `UPDATE complaints SET complaint_destination='ESCALATED', updated_at=NOW()
+           WHERE complaint_code=$1 AND complaint_destination='ADMIN' AND status <> 'RESOLVED'
+           RETURNING complaint_code`,
+          [c.complaint_code]
+        );
+        if (update.rowCount) {
+          const escalated = await recordEvent(c.complaint_code, 'AUTO_ESCALATED');
+          if (escalated && higherEmail) {
+            try {
+              await sendEmail(higherEmail, `SafeVoice automatic escalation — ${c.complaint_code}`, [
+                'An anonymous Hostel SafeVoice complaint has exceeded twice its response SLA and was automatically escalated.',
+                '', `Complaint ID: ${c.complaint_code}`, `Category: ${c.category}`, `Urgency: ${c.urgency}`,
+                `Age: ${Number(c.age_hours).toFixed(1)} hours`, `Location: ${c.location || 'Not specified'}`,
+                '', 'Please review the complaint and provide instructions to the admin if required.'
+              ].join('\n'));
+              await recordEvent(c.complaint_code, 'AUTO_ESCALATION_NOTICE');
+            } catch (err) {
+              console.error('Automatic escalation email failed:', err.message);
+            }
           }
         }
       }
@@ -103,14 +116,16 @@ export function registerPhase6({ app, pool, requireAdmin, requireHigher }) {
 
   app.get('/api/admin/automation', requireAdmin, async (_, res) => {
     const r = await pool.query(`SELECT COUNT(*) FILTER (WHERE event_type='SLA_OVERDUE_NOTICE')::int AS overdue_notices,
-      COUNT(*) FILTER (WHERE event_type='AUTO_ESCALATED')::int AS automatic_escalations
+      COUNT(*) FILTER (WHERE event_type='AUTO_ESCALATED')::int AS automatic_escalations,
+      COUNT(*) FILTER (WHERE event_type='AUTO_ESCALATION_NOTICE')::int AS automatic_escalation_notices
       FROM complaint_automation_events`);
     res.json(r.rows[0]);
   });
 
   app.get('/api/higher/automation', requireHigher, async (_, res) => {
     const r = await pool.query(`SELECT COUNT(*) FILTER (WHERE event_type='SLA_OVERDUE_NOTICE')::int AS overdue_notices,
-      COUNT(*) FILTER (WHERE event_type='AUTO_ESCALATED')::int AS automatic_escalations
+      COUNT(*) FILTER (WHERE event_type='AUTO_ESCALATED')::int AS automatic_escalations,
+      COUNT(*) FILTER (WHERE event_type='AUTO_ESCALATION_NOTICE')::int AS automatic_escalation_notices
       FROM complaint_automation_events`);
     res.json(r.rows[0]);
   });
