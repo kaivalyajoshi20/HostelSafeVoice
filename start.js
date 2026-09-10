@@ -3,7 +3,7 @@ import fs from 'fs/promises';
 const source = await fs.readFile(new URL('./server.js', import.meta.url), 'utf8');
 const marker = "const requireHigher = requireRole('higher');";
 if (!source.includes(marker)) throw new Error('Hostel SafeVoice server marker not found');
-const injected = `${source}\n\nimport { registerPhase3 } from './phase3.js';\nimport { registerPhase4 } from './phase4.js';\nregisterPhase3({ app, pool, requireAdmin, requireHigher });\nregisterPhase4({ app, pool, requireAdmin, requireHigher });\n`;
+const injected = `${source}\n\nimport { registerPhase3 } from './phase3.js';\nimport { registerPhase4 } from './phase4.js';\nimport { registerPhase5 } from './phase5.js';\nregisterPhase3({ app, pool, requireAdmin, requireHigher });\nregisterPhase4({ app, pool, requireAdmin, requireHigher });\nregisterPhase5({ app });\n`;
 const runtimeUrl = new URL('./.runtime-server.mjs', import.meta.url);
 await fs.writeFile(runtimeUrl, injected, 'utf8');
 await import(runtimeUrl.href);
