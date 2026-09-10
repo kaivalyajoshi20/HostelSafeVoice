@@ -29,14 +29,13 @@ export function registerPhase8({ app, pool, requireAdmin, requireHigher }) {
     }
   });
 
-  // Privacy guard: public tracking intentionally exposes status/timestamps only.
-  // Keep this endpoint separate so future dashboard changes cannot accidentally
-  // expand the public complaint response.
+  // Keep the public tracking contract explicit and narrow.
+  // It intentionally does not expose complaint content or dashboard data.
   app.get('/api/privacy-check', (_, res) => {
     res.json({
       public_tracking_fields: ['complaint_code', 'status', 'created_at', 'updated_at'],
-      identity_collection_by_form: false,
-      note: 'Do not enter names, phone numbers, room numbers, roll numbers, or other identifying information.'
+      form_identity_fields: false,
+      note: 'The form does not request identity fields. Do not enter names, phone numbers, room numbers, roll numbers, or other identifying information.'
     });
   });
 }
